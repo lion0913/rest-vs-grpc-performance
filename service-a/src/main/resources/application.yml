@@ -1,0 +1,29 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: service-a
+
+grpc:
+  client:
+    service-b:
+      address: ${SERVICE_B_GRPC_ADDRESS:static://localhost:9091}
+      negotiationType: plaintext
+
+service-b:
+  http-url: ${SERVICE_B_HTTP_URL:http://localhost:8081}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+logging:
+  level:
+    com.example.servicea: INFO

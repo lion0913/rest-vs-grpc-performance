@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  service-b:
+    build:
+      context: ./service-b
+      dockerfile: Dockerfile
+    container_name: service-b
+    ports:
+      - "8081:8081"
+      - "9091:9091"
+    networks:
+      - performance-test-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    environment:
+      - JAVA_OPTS=-Xmx1g -Xms512m
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: toxiproxy
+    ports:
+      - "8474:8474"  # Toxiproxy API
+      - "18081:18081"  # HTTP proxy
+      - "19091:19091"  # gRPC proxy
+    networks:
+      - performance-test-network
+    depends_on:
+      service-b:
+        condition: service_healthy
+    volumes:
+      - ./toxiproxy.json:/toxiproxy.json
+    command: ["-config", "/toxiproxy.json"]
+
+  service-a:
+    build:
+      context: ./service-a
+      dockerfile: Dockerfile
+    container_name: service-a
+    ports:
+      - "8080:8080"
+    networks:
+      - performance-test-network
+    depends_on:
+      - toxiproxy
+    environment:
+      - JAVA_OPTS=-Xmx1g -Xms512m
+      - SERVICE_B_HTTP_URL=http://toxiproxy:18081
+      - SERVICE_B_GRPC_ADDRESS=static://toxiproxy:19091
+
+networks:
+  performance-test-network:
+    driver: bridge

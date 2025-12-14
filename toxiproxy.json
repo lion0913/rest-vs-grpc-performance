@@ -1,0 +1,34 @@
+[
+  {
+    "name": "service-b-http",
+    "listen": "0.0.0.0:18081",
+    "upstream": "service-b:8081",
+    "enabled": true,
+    "toxics": [
+      {
+        "name": "latency",
+        "type": "latency",
+        "attributes": {
+          "latency": 10,
+          "jitter": 5
+        }
+      }
+    ]
+  },
+  {
+    "name": "service-b-grpc",
+    "listen": "0.0.0.0:19091",
+    "upstream": "service-b:9091",
+    "enabled": true,
+    "toxics": [
+      {
+        "name": "latency",
+        "type": "latency",
+        "attributes": {
+          "latency": 10,
+          "jitter": 5
+        }
+      }
+    ]
+  }
+]

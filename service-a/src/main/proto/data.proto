@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.example.proto";
+option java_outer_classname = "DataProto";
+
+package data;
+
+service DataService {
+  rpc SendData (DataRequest) returns (DataResponse);
+  rpc SendBatchData (BatchDataRequest) returns (BatchDataResponse);
+}
+
+message DataItem {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string category = 4;
+  string content = 5;
+  int64 timestamp = 6;
+  string metadata1 = 7;
+  string metadata2 = 8;
+  string metadata3 = 9;
+  string metadata4 = 10;
+  string metadata5 = 11;
+  string additionalInfo = 12;
+  double value = 13;
+  int32 status = 14;
+  string tags = 15;
+}
+
+message DataRequest {
+  DataItem data = 1;
+}
+
+message DataResponse {
+  bool success = 1;
+  string message = 2;
+  int64 processedAt = 3;
+}
+
+message BatchDataRequest {
+  repeated DataItem items = 1;
+}
+
+message BatchDataResponse {
+  bool success = 1;
+  int32 processedCount = 2;
+  string message = 3;
+  int64 startTime = 4;
+  int64 endTime = 5;
+}
