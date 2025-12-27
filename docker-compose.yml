@@ -35,6 +35,8 @@ services:
       - JAVA_OPTS=-Xmx1g -Xms512m
       - SERVICE_B_HTTP_URL=http://service-b:8081
       - SERVICE_B_GRPC_ADDRESS=static://service-b:9091
+    volumes:
+      - ./docs:/docs
 
 networks:
   performance-test-network:
