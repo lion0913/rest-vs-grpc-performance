@@ -16,6 +16,7 @@ public class HttpDataClient {
     public HttpDataClient(@Value("${service-b.http-url}") String serviceBUrl) {
         this.webClient = WebClient.builder()
             .baseUrl(serviceBUrl)
+            .codecs(configurer -> configurer.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
             .build();
     }
 
