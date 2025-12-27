@@ -2,6 +2,7 @@ package com.example.serviceb.service;
 
 import com.example.proto.*;
 import com.example.serviceb.model.DataItem;
+import com.example.serviceb.model.ServerPerformanceMetrics;
 import io.grpc.stub.StreamObserver;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,6 +16,7 @@ import java.util.List;
 public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
 
     private final DataGenerator dataGenerator;
+    private final PerformanceMetricsService metricsService;
 
     /**
      * Service B가 데이터를 생성해서 반환
@@ -22,12 +24,18 @@ public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
     @Override
     public void getBatchData(BatchDataGenerateRequest request, StreamObserver<BatchDataResponse> responseObserver) {
         long startTime = System.currentTimeMillis();
+        long startMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
 
         int count = request.getCount();
         log.info("Generating {} items via gRPC", count);
 
+        // 데이터 생성 시작
+        long dataGenStart = System.currentTimeMillis();
         List<DataItem> items = dataGenerator.generateDataItems(count);
+        long dataGenEnd = System.currentTimeMillis();
 
+        // 직렬화 시작 (Proto 변환)
+        long serializationStart = System.currentTimeMillis();
         BatchDataResponse.Builder responseBuilder = BatchDataResponse.newBuilder()
             .setSuccess(true)
             .setProcessedCount(items.size())
@@ -40,6 +48,30 @@ public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
             com.example.proto.DataItem protoItem = convertToProto(item);
             responseBuilder.addItems(protoItem);
         }
+        long serializationEnd = System.currentTimeMillis();
+
+        long endTime = System.currentTimeMillis();
+        long endMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+
+        // 메모리 차이 계산 (GC로 인해 음수가 될 수 있으므로 0 이상으로 보정)
+        long memoryDiff = Math.max(0, endMemory - startMemory);
+
+        // 서버 측 성능 측정 결과 저장
+        ServerPerformanceMetrics metrics = new ServerPerformanceMetrics(
+            "gRPC",
+            count,
+            startTime,
+            endTime,
+            endTime - startTime,
+            memoryDiff,
+            dataGenEnd - dataGenStart,
+            serializationEnd - serializationStart
+        );
+        metricsService.recordMetrics(metrics);
+
+        log.info("gRPC Server metrics - Duration: {}ms, Memory: {:.2f}MB, DataGen: {}ms, Serialization: {}ms",
+            metrics.getDurationMs(), metrics.getMemoryUsedMB(),
+            metrics.getDataGenerationMs(), metrics.getSerializationMs());
 
         responseObserver.onNext(responseBuilder.build());
         responseObserver.onCompleted();

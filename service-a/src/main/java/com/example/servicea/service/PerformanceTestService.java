@@ -3,6 +3,7 @@ package com.example.servicea.service;
 import com.example.servicea.client.GrpcDataClient;
 import com.example.servicea.client.HttpDataClient;
 import com.example.servicea.model.BatchDataResponse;
+import com.example.servicea.model.ServerPerformanceMetrics;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -11,6 +12,7 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -56,13 +58,16 @@ public class PerformanceTestService {
         long endTime = System.currentTimeMillis();
         long endMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
 
+        // 메모리 차이 계산 (GC로 인해 음수가 될 수 있으므로 0 이상으로 보정)
+        long memoryDiff = Math.max(0, endMemory - startMemory);
+
         TestResult result = new TestResult(
             "HTTP",
             totalCount,
             successCount,
             failCount,
             endTime - startTime,
-            endMemory - startMemory
+            memoryDiff
         );
 
         log.info("HTTP Test Result: {}", result);
@@ -105,13 +110,16 @@ public class PerformanceTestService {
         long endTime = System.currentTimeMillis();
         long endMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
 
+        // 메모리 차이 계산 (GC로 인해 음수가 될 수 있으므로 0 이상으로 보정)
+        long memoryDiff = Math.max(0, endMemory - startMemory);
+
         TestResult result = new TestResult(
             "gRPC",
             totalCount,
             successCount,
             failCount,
             endTime - startTime,
-            endMemory - startMemory
+            memoryDiff
         );
 
         log.info("gRPC Test Result: {}", result);
@@ -156,6 +164,14 @@ public class PerformanceTestService {
         log.info("Starting {} runs of performance comparison test with {} seconds interval (latency: {})",
             runs, intervalSeconds, withLatency ? "enabled" : "disabled");
 
+        // 서버 측 메트릭 초기화
+        try {
+            httpDataClient.clearServerMetrics().block();
+            log.info("Cleared server-side metrics before test");
+        } catch (Exception e) {
+            log.warn("Failed to clear server metrics", e);
+        }
+
         List<TestResult> httpResults = new ArrayList<>();
         List<TestResult> grpcResults = new ArrayList<>();
 
@@ -196,8 +212,17 @@ public class PerformanceTestService {
             }
         }
 
+        // Service B로부터 서버 측 메트릭 수집
+        Map<String, List<ServerPerformanceMetrics>> serverMetrics = null;
+        try {
+            serverMetrics = httpDataClient.getServerMetrics().block();
+            log.info("Collected server-side metrics from Service B");
+        } catch (Exception e) {
+            log.error("Failed to collect server metrics from Service B", e);
+        }
+
         // 결과를 파일로 저장
-        saveMultipleRunsResultsToFile(httpResults, grpcResults, totalCount, batchSize, withLatency);
+        saveMultipleRunsResultsToFile(httpResults, grpcResults, serverMetrics, totalCount, batchSize, withLatency);
     }
 
     /**
@@ -272,7 +297,9 @@ public class PerformanceTestService {
     /**
      * 10회 반복 테스트 결과를 파일에 저장
      */
-    private void saveMultipleRunsResultsToFile(List<TestResult> httpResults, List<TestResult> grpcResults, int totalCount, int batchSize, boolean withLatency) {
+    private void saveMultipleRunsResultsToFile(List<TestResult> httpResults, List<TestResult> grpcResults,
+                                                Map<String, List<ServerPerformanceMetrics>> serverMetrics,
+                                                int totalCount, int batchSize, boolean withLatency) {
         // 파일명 결정: latency 여부에 따라 분기
         String fileName = withLatency ? "response-latency-multiple.md" : "response-basic-multiple.md";
         String filePath = new java.io.File("/docs").exists() ? "/docs/" + fileName : "../docs/" + fileName;
@@ -365,6 +392,104 @@ public class PerformanceTestService {
             writer.write(String.format("- **%s가 평균 %.2f%% 더 적은 메모리 사용**\n", lessMemoryProtocol, memoryImprovement));
             writer.write(String.format("- HTTP 평균 메모리: %.2f MB\n", avgHttpMemory));
             writer.write(String.format("- gRPC 평균 메모리: %.2f MB\n\n", avgGrpcMemory));
+
+            // 서버 측 성능 측정 결과 추가
+            if (serverMetrics != null && !serverMetrics.isEmpty()) {
+                writer.write("---\n\n");
+                writer.write("## 서버 측 성능 측정 (Service B)\n\n");
+
+                List<ServerPerformanceMetrics> httpServerMetrics = serverMetrics.get("HTTP");
+                List<ServerPerformanceMetrics> grpcServerMetrics = serverMetrics.get("gRPC");
+
+                if (httpServerMetrics != null && !httpServerMetrics.isEmpty()) {
+                    writer.write("### HTTP Server 측정 결과\n\n");
+                    writer.write("| 회차 | 소요 시간 (ms) | 데이터 생성 (ms) | 직렬화 (ms) | 메모리 (MB) |\n");
+                    writer.write("|------|---------------|----------------|------------|------------|\n");
+
+                    for (int i = 0; i < httpServerMetrics.size(); i++) {
+                        ServerPerformanceMetrics m = httpServerMetrics.get(i);
+                        writer.write(String.format("| %d회 | %,d | %,d | %,d | %.2f |\n",
+                            i + 1,
+                            m.getDurationMs(),
+                            m.getDataGenerationMs(),
+                            m.getSerializationMs(),
+                            m.getMemoryUsedMB()));
+                    }
+
+                    double avgServerHttpDuration = httpServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getDurationMs).average().orElse(0);
+                    double avgServerHttpDataGen = httpServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getDataGenerationMs).average().orElse(0);
+                    double avgServerHttpSerialization = httpServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getSerializationMs).average().orElse(0);
+                    double avgServerHttpMemory = httpServerMetrics.stream().mapToDouble(ServerPerformanceMetrics::getMemoryUsedMB).average().orElse(0);
+
+                    writer.write(String.format("| **평균** | **%.2f** | **%.2f** | **%.2f** | **%.2f** |\n\n",
+                        avgServerHttpDuration, avgServerHttpDataGen, avgServerHttpSerialization, avgServerHttpMemory));
+                }
+
+                if (grpcServerMetrics != null && !grpcServerMetrics.isEmpty()) {
+                    writer.write("### gRPC Server 측정 결과\n\n");
+                    writer.write("| 회차 | 소요 시간 (ms) | 데이터 생성 (ms) | 직렬화 (ms) | 메모리 (MB) |\n");
+                    writer.write("|------|---------------|----------------|------------|------------|\n");
+
+                    for (int i = 0; i < grpcServerMetrics.size(); i++) {
+                        ServerPerformanceMetrics m = grpcServerMetrics.get(i);
+                        writer.write(String.format("| %d회 | %,d | %,d | %,d | %.2f |\n",
+                            i + 1,
+                            m.getDurationMs(),
+                            m.getDataGenerationMs(),
+                            m.getSerializationMs(),
+                            m.getMemoryUsedMB()));
+                    }
+
+                    double avgServerGrpcDuration = grpcServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getDurationMs).average().orElse(0);
+                    double avgServerGrpcDataGen = grpcServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getDataGenerationMs).average().orElse(0);
+                    double avgServerGrpcSerialization = grpcServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getSerializationMs).average().orElse(0);
+                    double avgServerGrpcMemory = grpcServerMetrics.stream().mapToDouble(ServerPerformanceMetrics::getMemoryUsedMB).average().orElse(0);
+
+                    writer.write(String.format("| **평균** | **%.2f** | **%.2f** | **%.2f** | **%.2f** |\n\n",
+                        avgServerGrpcDuration, avgServerGrpcDataGen, avgServerGrpcSerialization, avgServerGrpcMemory));
+                }
+
+                // 서버 측 비교 분석
+                if (httpServerMetrics != null && grpcServerMetrics != null && !httpServerMetrics.isEmpty() && !grpcServerMetrics.isEmpty()) {
+                    writer.write("### 서버 측 비교 분석\n\n");
+
+                    double avgServerHttpDuration = httpServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getDurationMs).average().orElse(0);
+                    double avgServerGrpcDuration = grpcServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getDurationMs).average().orElse(0);
+                    double avgServerHttpSerialization = httpServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getSerializationMs).average().orElse(0);
+                    double avgServerGrpcSerialization = grpcServerMetrics.stream().mapToLong(ServerPerformanceMetrics::getSerializationMs).average().orElse(0);
+                    double avgServerHttpMemory = httpServerMetrics.stream().mapToDouble(ServerPerformanceMetrics::getMemoryUsedMB).average().orElse(0);
+                    double avgServerGrpcMemory = grpcServerMetrics.stream().mapToDouble(ServerPerformanceMetrics::getMemoryUsedMB).average().orElse(0);
+
+                    double serverSpeedRatio = avgServerHttpDuration / avgServerGrpcDuration;
+                    String serverFasterProtocol = serverSpeedRatio > 1 ? "gRPC" : "HTTP";
+                    double serverSpeedImprovement = Math.abs(serverSpeedRatio - 1) * 100;
+
+                    writer.write("#### 서버 처리 시간\n\n");
+                    writer.write(String.format("- **%s가 평균 %.2f%% 더 빠름**\n", serverFasterProtocol, serverSpeedImprovement));
+                    writer.write(String.format("- HTTP 평균: %.2f ms\n", avgServerHttpDuration));
+                    writer.write(String.format("- gRPC 평균: %.2f ms\n\n", avgServerGrpcDuration));
+
+                    double serializationRatio = avgServerHttpSerialization / avgServerGrpcSerialization;
+                    String fasterSerialization = serializationRatio > 1 ? "gRPC (Protobuf)" : "HTTP (JSON)";
+                    double serializationImprovement = Math.abs(serializationRatio - 1) * 100;
+
+                    writer.write("#### 직렬화 성능\n\n");
+                    writer.write(String.format("- **%s가 평균 %.2f%% 더 빠름**\n", fasterSerialization, serializationImprovement));
+                    writer.write(String.format("- HTTP (JSON) 평균: %.2f ms\n", avgServerHttpSerialization));
+                    writer.write(String.format("- gRPC (Protobuf) 평균: %.2f ms\n\n", avgServerGrpcSerialization));
+
+                    double serverMemoryRatio = avgServerHttpMemory / avgServerGrpcMemory;
+                    String serverLessMemory = serverMemoryRatio > 1 ? "gRPC" : "HTTP";
+                    double serverMemoryImprovement = Math.abs(serverMemoryRatio - 1) * 100;
+
+                    writer.write("#### 서버 메모리 사용량\n\n");
+                    writer.write(String.format("- **%s가 평균 %.2f%% 더 적음**\n", serverLessMemory, serverMemoryImprovement));
+                    writer.write(String.format("- HTTP 평균: %.2f MB\n", avgServerHttpMemory));
+                    writer.write(String.format("- gRPC 평균: %.2f MB\n\n", avgServerGrpcMemory));
+                }
+
+                writer.write("---\n\n");
+            }
 
             // 결론
             writer.write("## 결론\n\n");
