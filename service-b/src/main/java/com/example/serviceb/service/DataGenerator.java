@@ -1,6 +1,6 @@
-package com.example.servicea.service;
+package com.example.serviceb.service;
 
-import com.example.servicea.model.DataItem;
+import com.example.serviceb.model.DataItem;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;

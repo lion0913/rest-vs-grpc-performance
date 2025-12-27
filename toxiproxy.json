@@ -9,7 +9,7 @@
         "name": "latency",
         "type": "latency",
         "attributes": {
-          "latency": 10,
+          "latency": 2,
           "jitter": 5
         }
       }

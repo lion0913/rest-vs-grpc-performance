@@ -4,7 +4,7 @@ FROM gradle:8.11.1-jdk21 AS build
 WORKDIR /app
 
 # Copy gradle files
-COPY build.gradle settings.gradle gradle.properties ./
+COPY build.gradle settings.gradle ./
 COPY src ./src
 
 # Build the application

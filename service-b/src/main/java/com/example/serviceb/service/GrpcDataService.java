@@ -1,48 +1,67 @@
 package com.example.serviceb.service;
 
 import com.example.proto.*;
+import com.example.serviceb.model.DataItem;
 import io.grpc.stub.StreamObserver;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
 
+import java.util.List;
+
 @Slf4j
 @GrpcService
+@RequiredArgsConstructor
 public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
 
+    private final DataGenerator dataGenerator;
+
+    /**
+     * Service B가 데이터를 생성해서 반환
+     */
     @Override
-    public void sendData(DataRequest request, StreamObserver<DataResponse> responseObserver) {
-        long processedAt = System.currentTimeMillis();
+    public void getBatchData(BatchDataGenerateRequest request, StreamObserver<BatchDataResponse> responseObserver) {
+        long startTime = System.currentTimeMillis();
 
-        log.debug("Received data via gRPC: {}", request.getData().getId());
+        int count = request.getCount();
+        log.info("Generating {} items via gRPC", count);
 
-        DataResponse response = DataResponse.newBuilder()
+        List<DataItem> items = dataGenerator.generateDataItems(count);
+
+        BatchDataResponse.Builder responseBuilder = BatchDataResponse.newBuilder()
             .setSuccess(true)
-            .setMessage("Data received successfully")
-            .setProcessedAt(processedAt)
-            .build();
+            .setProcessedCount(items.size())
+            .setMessage("Batch data generated successfully")
+            .setStartTime(startTime)
+            .setEndTime(System.currentTimeMillis());
 
-        responseObserver.onNext(response);
+        // Java DataItem을 Proto DataItem으로 변환
+        for (DataItem item : items) {
+            com.example.proto.DataItem protoItem = convertToProto(item);
+            responseBuilder.addItems(protoItem);
+        }
+
+        responseObserver.onNext(responseBuilder.build());
         responseObserver.onCompleted();
     }
 
-    @Override
-    public void sendBatchData(BatchDataRequest request, StreamObserver<BatchDataResponse> responseObserver) {
-        long startTime = System.currentTimeMillis();
-
-        int count = request.getItemsCount();
-        log.info("Received {} items via gRPC batch", count);
-
-        long endTime = System.currentTimeMillis();
-
-        BatchDataResponse response = BatchDataResponse.newBuilder()
-            .setSuccess(true)
-            .setProcessedCount(count)
-            .setMessage("Batch data received successfully")
-            .setStartTime(startTime)
-            .setEndTime(endTime)
+    private com.example.proto.DataItem convertToProto(DataItem item) {
+        return com.example.proto.DataItem.newBuilder()
+            .setId(item.getId())
+            .setName(item.getName())
+            .setDescription(item.getDescription())
+            .setCategory(item.getCategory())
+            .setContent(item.getContent())
+            .setTimestamp(item.getTimestamp())
+            .setMetadata1(item.getMetadata1())
+            .setMetadata2(item.getMetadata2())
+            .setMetadata3(item.getMetadata3())
+            .setMetadata4(item.getMetadata4())
+            .setMetadata5(item.getMetadata5())
+            .setAdditionalInfo(item.getAdditionalInfo())
+            .setValue(item.getValue())
+            .setStatus(item.getStatus())
+            .setTags(item.getTags())
             .build();
-
-        responseObserver.onNext(response);
-        responseObserver.onCompleted();
     }
 }

@@ -7,8 +7,7 @@ option java_outer_classname = "DataProto";
 package data;
 
 service DataService {
-  rpc SendData (DataRequest) returns (DataResponse);
-  rpc SendBatchData (BatchDataRequest) returns (BatchDataResponse);
+  rpc GetBatchData (BatchDataGenerateRequest) returns (BatchDataResponse);
 }
 
 message DataItem {
@@ -29,18 +28,8 @@ message DataItem {
   string tags = 15;
 }
 
-message DataRequest {
-  DataItem data = 1;
-}
-
-message DataResponse {
-  bool success = 1;
-  string message = 2;
-  int64 processedAt = 3;
-}
-
-message BatchDataRequest {
-  repeated DataItem items = 1;
+message BatchDataGenerateRequest {
+  int32 count = 1;
 }
 
 message BatchDataResponse {
@@ -49,4 +38,5 @@ message BatchDataResponse {
   string message = 3;
   int64 startTime = 4;
   int64 endTime = 5;
+  repeated DataItem items = 6;
 }

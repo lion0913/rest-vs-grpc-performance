@@ -301,7 +301,7 @@ curl -X POST "http://localhost:8080/api/test/compare?totalCount=1000000&batchSiz
 
 ```bash
 # 결과 확인
-cat docs/response.md
+cat docs/response-basic-multiple.md
 ```
 
 ## 모니터링

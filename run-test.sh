@@ -38,7 +38,7 @@ echo "Response:"
 echo "$RESPONSE"
 echo ""
 
-# Check if response.md was created
+# Check if response-basic-multiple.md was created
 if [ -f "docs/response.md" ]; then
     echo "=============================================="
     echo "Test completed! Results saved to docs/response.md"

@@ -1,9 +1,6 @@
 package com.example.servicea.client;
 
-import com.example.servicea.model.BatchDataRequest;
 import com.example.servicea.model.BatchDataResponse;
-import com.example.servicea.model.DataItem;
-import com.example.servicea.model.DataResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -22,18 +19,12 @@ public class HttpDataClient {
             .build();
     }
 
-    public Mono<DataResponse> sendData(DataItem data) {
-        return webClient.post()
-            .uri("/api/data/send")
-            .bodyValue(data)
-            .retrieve()
-            .bodyToMono(DataResponse.class);
-    }
-
-    public Mono<BatchDataResponse> sendBatchData(BatchDataRequest request) {
-        return webClient.post()
-            .uri("/api/data/batch")
-            .bodyValue(request)
+    public Mono<BatchDataResponse> getBatchData(int count) {
+        return webClient.get()
+            .uri(uriBuilder -> uriBuilder
+                .path("/api/data/generate")
+                .queryParam("count", count)
+                .build())
             .retrieve()
             .bodyToMono(BatchDataResponse.class);
     }

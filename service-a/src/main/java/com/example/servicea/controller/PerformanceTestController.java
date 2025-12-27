@@ -80,9 +80,38 @@ public class PerformanceTestController {
 
         Map<String, String> response = new HashMap<>();
         response.put("status", "completed");
-        response.put("message", "Performance comparison completed. Results saved to docs/response.md");
+        response.put("message", "Performance comparison completed. Results saved to docs/response-basic-multiple.md");
         response.put("totalCount", String.valueOf(totalCount));
         response.put("batchSize", String.valueOf(batchSize));
+
+        return response;
+    }
+
+    /**
+     * HTTP vs gRPC 비교 테스트 10회 반복 실행 및 평균 결과를 파일에 저장
+     */
+    @PostMapping("/compare-multiple")
+    public Map<String, String> compareProtocolsMultipleRuns(
+            @RequestParam(defaultValue = "400000") int totalCount,
+            @RequestParam(defaultValue = "1000") int batchSize,
+            @RequestParam(defaultValue = "10") int runs,
+            @RequestParam(defaultValue = "30") int intervalSeconds,
+            @RequestParam(defaultValue = "false") boolean withLatency) {
+
+        log.info("Starting multiple runs comparison test: totalCount={}, batchSize={}, runs={}, intervalSeconds={}, withLatency={}",
+                totalCount, batchSize, runs, intervalSeconds, withLatency);
+
+        performanceTestService.compareAndSaveResultsWithMultipleRuns(totalCount, batchSize, runs, intervalSeconds, withLatency);
+
+        String fileName = withLatency ? "response-latency-multiple.md" : "response-basic-multiple.md";
+        Map<String, String> response = new HashMap<>();
+        response.put("status", "completed");
+        response.put("message", "Performance comparison with " + runs + " runs completed. Results saved to docs/" + fileName);
+        response.put("totalCount", String.valueOf(totalCount));
+        response.put("batchSize", String.valueOf(batchSize));
+        response.put("runs", String.valueOf(runs));
+        response.put("intervalSeconds", String.valueOf(intervalSeconds));
+        response.put("withLatency", String.valueOf(withLatency));
 
         return response;
     }
