@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.devh.boot.grpc.server.service.GrpcService;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
 import java.util.List;
 
 @Slf4j
@@ -24,7 +26,10 @@ public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
     @Override
     public void getBatchData(BatchDataGenerateRequest request, StreamObserver<BatchDataResponse> responseObserver) {
         long startTime = System.currentTimeMillis();
-        long startMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+
+        // MemoryMXBean을 사용한 정확한 힙 메모리 측정
+        MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+        long startMemory = memoryBean.getHeapMemoryUsage().getUsed();
 
         int count = request.getCount();
         log.info("Generating {} items via gRPC", count);
@@ -51,10 +56,10 @@ public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
         long serializationEnd = System.currentTimeMillis();
 
         long endTime = System.currentTimeMillis();
-        long endMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+        long endMemory = memoryBean.getHeapMemoryUsage().getUsed();
 
-        // 메모리 차이 계산 (GC로 인해 음수가 될 수 있으므로 0 이상으로 보정)
-        long memoryDiff = Math.max(0, endMemory - startMemory);
+        // 메모리 증가량 계산
+        long memoryIncrease = endMemory - startMemory;
 
         // 서버 측 성능 측정 결과 저장
         ServerPerformanceMetrics metrics = new ServerPerformanceMetrics(
@@ -63,7 +68,7 @@ public class GrpcDataService extends DataServiceGrpc.DataServiceImplBase {
             startTime,
             endTime,
             endTime - startTime,
-            memoryDiff,
+            memoryIncrease,
             dataGenEnd - dataGenStart,
             serializationEnd - serializationStart
         );

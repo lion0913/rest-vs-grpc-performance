@@ -10,6 +10,8 @@ import org.springframework.stereotype.Service;
 
 import java.io.FileWriter;
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
+import java.lang.management.MemoryMXBean;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -29,7 +31,11 @@ public class PerformanceTestService {
         log.info("Starting HTTP batch test: {} items, batch size: {}", totalCount, batchSize);
 
         long startTime = System.currentTimeMillis();
-        long startMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+
+        // MemoryMXBean을 사용한 정확한 힙 메모리 측정
+        MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+        long startMemory = memoryBean.getHeapMemoryUsage().getUsed();
+        long peakMemory = startMemory;
 
         int successCount = 0;
         int failCount = 0;
@@ -37,18 +43,27 @@ public class PerformanceTestService {
         for (int i = 0; i < totalCount; i += batchSize) {
             int currentBatchSize = Math.min(batchSize, totalCount - i);
 
+            BatchDataResponse response = null;
             try {
-                BatchDataResponse response =
-                    httpDataClient.getBatchData(currentBatchSize).block();
+                response = httpDataClient.getBatchData(currentBatchSize).block();
 
                 if (response != null && response.isSuccess()) {
+                    // 실제 운영 환경처럼 데이터를 처리 (역직렬화 강제 + 메모리 사용 측정)
+                    processDataItems(response.getItems());
                     successCount += currentBatchSize;
-                    log.debug("Received {} items from Service B via HTTP", response.getProcessedCount());
+                    log.debug("Processed {} items from Service B via HTTP", response.getProcessedCount());
                 }
             } catch (Exception e) {
                 log.error("HTTP batch receive failed", e);
                 failCount += currentBatchSize;
+            } finally {
+                // 처리 완료 후 참조 제거 (실제 운영처럼 메모리 해제 유도)
+                response = null;
             }
+
+            // 각 배치 처리 후 peak memory 추적
+            long currentMemory = memoryBean.getHeapMemoryUsage().getUsed();
+            peakMemory = Math.max(peakMemory, currentMemory);
 
             if ((i + currentBatchSize) % 10000 == 0) {
                 log.info("HTTP Progress: {}/{}", i + currentBatchSize, totalCount);
@@ -56,10 +71,9 @@ public class PerformanceTestService {
         }
 
         long endTime = System.currentTimeMillis();
-        long endMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
 
-        // 메모리 차이 계산 (GC로 인해 음수가 될 수 있으므로 0 이상으로 보정)
-        long memoryDiff = Math.max(0, endMemory - startMemory);
+        // Peak 메모리 증가량 계산
+        long memoryIncrease = peakMemory - startMemory;
 
         TestResult result = new TestResult(
             "HTTP",
@@ -67,11 +81,32 @@ public class PerformanceTestService {
             successCount,
             failCount,
             endTime - startTime,
-            memoryDiff
+            memoryIncrease
         );
 
         log.info("HTTP Test Result: {}", result);
         return result;
+    }
+
+    /**
+     * 데이터를 실제로 처리하여 역직렬화를 강제하고 메모리 사용량을 정확히 측정
+     * (실제 운영에서는 DB insert, 비즈니스 로직 등이 여기 해당)
+     */
+    private void processDataItems(java.util.List<com.example.servicea.model.DataItem> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        // 모든 필드에 접근하여 실제 역직렬화 강제
+        for (com.example.servicea.model.DataItem item : items) {
+            // 각 필드 접근 (JIT 최적화 방지를 위해 실제 사용)
+            @SuppressWarnings("unused")
+            String dummy = item.getId() + item.getName() + item.getDescription() +
+                           item.getCategory() + item.getContent() + item.getMetadata1() +
+                           item.getMetadata2() + item.getMetadata3() + item.getMetadata4() +
+                           item.getMetadata5() + item.getAdditionalInfo() + item.getTags();
+        }
+        // 메서드 종료 시 items와 dummy는 GC 대상이 됨 (실제 DB insert 후 메모리 해제 시뮬레이션)
     }
 
     /**
@@ -81,7 +116,11 @@ public class PerformanceTestService {
         log.info("Starting gRPC batch test: {} items, batch size: {}", totalCount, batchSize);
 
         long startTime = System.currentTimeMillis();
-        long startMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
+
+        // MemoryMXBean을 사용한 정확한 힙 메모리 측정
+        MemoryMXBean memoryBean = ManagementFactory.getMemoryMXBean();
+        long startMemory = memoryBean.getHeapMemoryUsage().getUsed();
+        long peakMemory = startMemory;
 
         int successCount = 0;
         int failCount = 0;
@@ -89,18 +128,27 @@ public class PerformanceTestService {
         for (int i = 0; i < totalCount; i += batchSize) {
             int currentBatchSize = Math.min(batchSize, totalCount - i);
 
+            com.example.proto.BatchDataResponse response = null;
             try {
-                com.example.proto.BatchDataResponse response =
-                    grpcDataClient.getBatchData(currentBatchSize);
+                response = grpcDataClient.getBatchData(currentBatchSize);
 
                 if (response != null && response.getSuccess()) {
+                    // 실제 운영 환경처럼 데이터를 처리 (역직렬화 강제 + 메모리 사용 측정)
+                    processProtoDataItems(response.getItemsList());
                     successCount += currentBatchSize;
-                    log.debug("Received {} items from Service B via gRPC", response.getProcessedCount());
+                    log.debug("Processed {} items from Service B via gRPC", response.getProcessedCount());
                 }
             } catch (Exception e) {
                 log.error("gRPC batch failed", e);
                 failCount += currentBatchSize;
+            } finally {
+                // 처리 완료 후 참조 제거 (실제 운영처럼 메모리 해제 유도)
+                response = null;
             }
+
+            // 각 배치 처리 후 peak memory 추적
+            long currentMemory = memoryBean.getHeapMemoryUsage().getUsed();
+            peakMemory = Math.max(peakMemory, currentMemory);
 
             if ((i + currentBatchSize) % 10000 == 0) {
                 log.info("gRPC Progress: {}/{}", i + currentBatchSize, totalCount);
@@ -108,10 +156,9 @@ public class PerformanceTestService {
         }
 
         long endTime = System.currentTimeMillis();
-        long endMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
 
-        // 메모리 차이 계산 (GC로 인해 음수가 될 수 있으므로 0 이상으로 보정)
-        long memoryDiff = Math.max(0, endMemory - startMemory);
+        // Peak 메모리 증가량 계산
+        long memoryIncrease = peakMemory - startMemory;
 
         TestResult result = new TestResult(
             "gRPC",
@@ -119,11 +166,32 @@ public class PerformanceTestService {
             successCount,
             failCount,
             endTime - startTime,
-            memoryDiff
+            memoryIncrease
         );
 
         log.info("gRPC Test Result: {}", result);
         return result;
+    }
+
+    /**
+     * Protobuf 데이터를 실제로 처리하여 역직렬화를 강제하고 메모리 사용량을 정확히 측정
+     * (실제 운영에서는 DB insert, 비즈니스 로직 등이 여기 해당)
+     */
+    private void processProtoDataItems(java.util.List<com.example.proto.DataItem> items) {
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        // 모든 필드에 접근하여 실제 역직렬화 강제
+        for (com.example.proto.DataItem item : items) {
+            // 각 필드 접근 (JIT 최적화 방지를 위해 실제 사용)
+            @SuppressWarnings("unused")
+            String dummy = item.getId() + item.getName() + item.getDescription() +
+                           item.getCategory() + item.getContent() + item.getMetadata1() +
+                           item.getMetadata2() + item.getMetadata3() + item.getMetadata4() +
+                           item.getMetadata5() + item.getAdditionalInfo() + item.getTags();
+        }
+        // 메서드 종료 시 items와 dummy는 GC 대상이 됨 (실제 DB insert 후 메모리 해제 시뮬레이션)
     }
 
     /**
